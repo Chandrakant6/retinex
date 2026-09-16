@@ -1,0 +1,9 @@
+fastapi==0.141.1
+numpy==2.5.3
+opencv-python-headless==5.0.0.93
+python-multipart==0.0.32
+uvicorn==0.53.0
+
+# Optional — only if MATLAB is installed locally.
+# Install via: cd "matlabroot/extern/engines/python" && python setup.py install
+# App runs fine without it (falls back to OpenCV automatically).
