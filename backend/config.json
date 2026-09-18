@@ -1,0 +1,5 @@
+{
+  "temperature": 1.0,
+  "referable_threshold": 0.5,
+  "_note": "Placeholder defaults for the untrained demo model. Overwritten by scripts/calibrate.py once a real trained model and validation set are available."
+}

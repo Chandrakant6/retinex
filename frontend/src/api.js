@@ -1,15 +1,25 @@
-const BASE = ''; // same-origin via vite proxy in dev, or same host in prod
+const BASE = ''; // same-origin via Vite proxy in dev, or same host in production
 
-export async function screenImage(file) {
-  const form = new FormData();
-  form.append('file', file);
-  const res = await fetch(`${BASE}/api/screen`, { method: 'POST', body: form });
-  if (!res.ok) throw new Error(`screen failed: ${res.status}`);
+async function handle(res) {
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`${res.status} ${res.statusText}${text ? ': ' + text : ''}`);
+  }
   return res.json();
 }
 
-export async function submitReview({ id, decision, overrideLevel, reviewTimeSec }) {
-  const res = await fetch(`${BASE}/api/review`, {
+export function health() {
+  return fetch(`${BASE}/api/health`).then(handle);
+}
+
+export function screenImage(file) {
+  const form = new FormData();
+  form.append('file', file);
+  return fetch(`${BASE}/api/screen`, { method: 'POST', body: form }).then(handle);
+}
+
+export function submitReview({ id, decision, overrideLevel, reviewTimeSec }) {
+  return fetch(`${BASE}/api/review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -18,7 +28,25 @@ export async function submitReview({ id, decision, overrideLevel, reviewTimeSec 
       override_level: overrideLevel ?? null,
       review_time_sec: reviewTimeSec,
     }),
-  });
-  if (!res.ok) throw new Error(`review failed: ${res.status}`);
-  return res.json();
+  }).then(handle);
+}
+
+export function listCases() {
+  return fetch(`${BASE}/api/cases`).then(handle);
+}
+
+export function getMetrics() {
+  return fetch(`${BASE}/api/metrics`).then(handle);
+}
+
+export function runSimulation(params) {
+  return fetch(`${BASE}/api/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  }).then(handle);
+}
+
+export function reportUrl(id) {
+  return `${BASE}/api/report/${id}`;
 }

@@ -1,9 +1,16 @@
-fastapi==0.141.1
-numpy==2.5.3
-opencv-python-headless==5.0.0.93
-python-multipart==0.0.32
-uvicorn==0.53.0
+fastapi==0.115.6
+uvicorn==0.32.1
+python-multipart==0.0.20
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+scipy==1.14.1
+scikit-learn==1.5.2
+tensorflow-cpu==2.18.0
 
-# Optional — only if MATLAB is installed locally.
-# Install via: cd "matlabroot/extern/engines/python" && python setup.py install
-# App runs fine without it (falls back to OpenCV automatically).
+# Notes:
+# - tensorflow-cpu is enough for this MVP (small custom CNN, no GPU assumed
+#   at rural PHC sites). Swap for `tensorflow` if you have a CUDA GPU and
+#   move to a larger backbone.
+# - If checkpoints/model.keras is missing or TF fails to import, the app
+#   automatically falls back to a deterministic mock predictor — see
+#   ml_model.py and doc/model.md.
