@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { screenImage, submitReview, reportUrl } from './api';
-import { LEVEL_COLORS, LEVEL_LABELS } from './lib.jsx';
+import { LEVEL_COLORS } from './lib.jsx';
+import { useI18n } from './i18n/I18nContext.jsx';
 
-function ProbBars({ probabilities }) {
+function ProbBars({ probabilities, t }) {
   return (
     <div className="prob-bars">
       {probabilities.map((p, i) => (
         <div className="prob-row" key={i}>
-          <span className="prob-label">{i}: {LEVEL_LABELS[i]}</span>
+          <span className="prob-label">{i}: {t(`level_${i}`)}</span>
           <div className="prob-track">
             <div className="prob-fill" style={{ width: `${p * 100}%`, background: LEVEL_COLORS[i] }} />
           </div>
@@ -25,20 +26,27 @@ function ImageViewer({ images }) {
     { key: 'gradcam', label: 'Grad-CAM' },
     { key: 'lesions', label: 'Lesions' },
   ];
+  // Tab labels intentionally stay untranslated: "Grad-CAM" is a proper
+  // technical term with no standard translation, and "Enhanced/Original/
+  // Lesions" read fine as short image-viewer labels even in a non-English
+  // UI, similar to how a camera app's mode names are often left in
+  // English. Translate these too if that turns out not to hold for a
+  // given language — nothing else depends on this choice.
   const [active, setActive] = useState('gradcam');
   const [opacity, setOpacity] = useState(0.7);
   const overlayTabs = new Set(['gradcam', 'lesions']);
+  const { t } = useI18n();
 
   return (
     <div className="image-tabs">
       <div className="tab-bar">
-        {tabs.map((t) => (
+        {tabs.map((tab) => (
           <button
-            key={t.key}
-            className={`tab-btn ${active === t.key ? 'active' : ''}`}
-            onClick={() => setActive(t.key)}
+            key={tab.key}
+            className={`tab-btn ${active === tab.key ? 'active' : ''}`}
+            onClick={() => setActive(tab.key)}
           >
-            {t.label}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -64,21 +72,21 @@ function ImageViewer({ images }) {
   );
 }
 
-function EvidencePanel({ evidence }) {
+function EvidencePanel({ evidence, t }) {
   return (
     <div className="evidence-panel">
       <div className="chips">
-        <span className="chip">{evidence.microaneurysm_count} microaneurysms</span>
-        <span className="chip">{evidence.hemorrhage_count} hemorrhages</span>
-        <span className="chip">{evidence.exudate_area_pct}% exudate area</span>
+        <span className="chip">{evidence.microaneurysm_count} {t('microaneurysms')}</span>
+        <span className="chip">{evidence.hemorrhage_count} {t('hemorrhages')}</span>
+        <span className="chip">{evidence.exudate_area_pct}% {t('exudateArea')}</span>
         {evidence.cam_lesion_overlap_pct != null && (
-          <span className="chip">{evidence.cam_lesion_overlap_pct}% lesions inside attention region</span>
+          <span className="chip">{evidence.cam_lesion_overlap_pct}{t('lesionsInAttention')}</span>
         )}
       </div>
       {evidence.consistent ? (
-        <p className="consistency-flag ok">✓ AI grade is consistent with visible lesion evidence.</p>
+        <p className="consistency-flag ok">{t('consistentOk')}</p>
       ) : (
-        <p className="consistency-flag warn">⚠ Evidence and AI grade disagree — review carefully.</p>
+        <p className="consistency-flag warn">{t('consistentWarn')}</p>
       )}
       {evidence.notes?.length > 0 && (
         <ul className="evidence-notes">
@@ -90,6 +98,7 @@ function EvidencePanel({ evidence }) {
 }
 
 export default function ScreenPage({ engineInfo }) {
+  const { t } = useI18n();
   const [status, setStatus] = useState('idle'); // idle | loading | rejected | complete
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -165,12 +174,11 @@ export default function ScreenPage({ engineInfo }) {
 
   return (
     <div>
-      <h1 className="page-title">Screen a fundus image</h1>
+      <h1 className="page-title">{t('screenTitle')}</h1>
       <p className="page-subtitle">
-        Upload or capture a retinal photograph. Images that aren&rsquo;t gradable are flagged for
-        recapture before anything is graded.
+        {t('screenSubtitle')}
         {engineInfo?.engine === 'mock' && (
-          <> &nbsp;<span className="chip">Demo mode — no trained model loaded</span></>
+          <> &nbsp;<span className="chip">{t('demoModeChip')}</span></>
         )}
       </p>
 
@@ -185,8 +193,8 @@ export default function ScreenPage({ engineInfo }) {
           onClick={() => fileInputRef.current?.click()}
         >
           <div className="icon">📷</div>
-          <p>Drop a fundus image here, or click to browse</p>
-          <p className="hint">JPG or PNG · works from a phone camera in the field</p>
+          <p>{t('dropzoneText')}</p>
+          <p className="hint">{t('dropzoneHint')}</p>
           <input
             ref={fileInputRef} type="file" accept="image/*" capture="environment" hidden
             onChange={(e) => handleFile(e.target.files?.[0])}
@@ -197,19 +205,21 @@ export default function ScreenPage({ engineInfo }) {
       {status === 'loading' && (
         <div className="card loading">
           <div className="spinner" />
-          <p>Assessing quality, enhancing, grading…</p>
+          <p>{t('loadingText')}</p>
         </div>
       )}
 
       {status === 'rejected' && result && (
         <div className="card rejected-card">
-          <h2>⚠ Image rejected</h2>
-          <p>Quality score: {(result.quality.score * 100).toFixed(0)}%</p>
+          <h2>{t('rejectedTitle')}</h2>
+          <p>{t('qualityScoreLabel')}: {(result.quality.score * 100).toFixed(0)}%</p>
           <ul>
-            {result.quality.reasons.map((r) => <li key={r}>{r.replace(/_/g, ' ')}</li>)}
+            {result.quality.reasons.map((r) => <li key={r}>{t(`reason_${r}`)}</li>)}
           </ul>
-          <p className="guidance">{result.quality.guidance}</p>
-          <button className="btn primary" onClick={reset}>Try another image</button>
+          <p className="guidance">
+            {t('guidancePrefix')} {result.quality.reasons.map((r) => t(`reason_${r}`)).join(', ')}.
+          </p>
+          <button className="btn primary" onClick={reset}>{t('tryAnotherImage')}</button>
         </div>
       )}
 
@@ -221,53 +231,53 @@ export default function ScreenPage({ engineInfo }) {
             </div>
             <div>
               <div className="grade-badge" style={{ background: LEVEL_COLORS[result.grading.icdr_level] }}>
-                Level {result.grading.icdr_level} — {result.grading.icdr_label}
+                {t('levelLabel')} {result.grading.icdr_level} — {t(`level_${result.grading.icdr_level}`)}
               </div>
               <p className="referable-line">
-                {result.grading.referable ? '🔴 Referable DR' : '🟢 Not referable'}
-                {' · '}Confidence: {(result.grading.confidence * 100).toFixed(0)}%
+                {result.grading.referable ? t('referableYes') : t('referableNo')}
+                {' · '}{t('confidenceLabel')}: {(result.grading.confidence * 100).toFixed(0)}%
               </p>
-              <div className="recommendation">{result.grading.recommendation}</div>
+              <div className="recommendation">{t(`rec_${result.grading.recommendation_code}`)}</div>
 
-              <ProbBars probabilities={result.grading.probabilities} />
-              <EvidencePanel evidence={result.evidence} />
+              <ProbBars probabilities={result.grading.probabilities} t={t} />
+              <EvidencePanel evidence={result.evidence} t={t} />
 
               <div className="meta-row">
-                <span>Quality: {(result.quality.score * 100).toFixed(0)}% ({result.quality.tier})</span>
-                <span>Processed in {result.processing_time_sec}s</span>
-                <span>Engine: {result.engine}</span>
+                <span>{t('metaQuality')}: {(result.quality.score * 100).toFixed(0)}% ({result.quality.tier})</span>
+                <span>{t('metaProcessedIn')} {result.processing_time_sec}s</span>
+                <span>{t('metaEngine')}: {result.engine}</span>
               </div>
 
               {!reviewed ? (
                 <>
-                  <div className="review-timer">⏱ {elapsed.toFixed(1)}s reviewing</div>
+                  <div className="review-timer">⏱ {elapsed.toFixed(1)}s {t('reviewingTimer')}</div>
                   <div className="review-actions">
-                    <button className="btn primary" onClick={() => handleDecision('accept')}>✓ Accept (A)</button>
+                    <button className="btn primary" onClick={() => handleDecision('accept')}>{t('accept')}</button>
                     {[0, 1, 2, 3, 4].map((lvl) => (
-                      <button key={lvl} className="level-btn" title={`Override to level ${lvl}`}
+                      <button key={lvl} className="level-btn" title={`${t('overrideTitle')} ${lvl}`}
                         onClick={() => handleDecision('override', lvl)}>{lvl}</button>
                     ))}
                   </div>
-                  <p className="keyhint">
-                    <kbd>A</kbd> accept · <kbd>0</kbd>–<kbd>4</kbd> override level · <kbd>N</kbd> next image
-                  </p>
+                  <p className="keyhint">{t('keyhint')}</p>
                 </>
               ) : (
-                <div className="reviewed-note">Review recorded ✓ ({elapsed.toFixed(1)}s)</div>
+                <div className="reviewed-note">{t('reviewedNote')} ({elapsed.toFixed(1)}s)</div>
               )}
 
               {sessionStats && (
                 <div className="session-stats">
-                  <b>Session:</b> {sessionStats.reviewed} reviewed · avg {sessionStats.avg_review_time_sec}s ·
-                  {' '}{sessionStats.under_30s_pct}% under 30s · {sessionStats.override_rate_pct}% overridden
+                  <b>{t('sessionLabel')}:</b> {sessionStats.reviewed} {t('sessionReviewed')} ·
+                  {' '}{t('sessionAvg')} {sessionStats.avg_review_time_sec}s ·
+                  {' '}{sessionStats.under_30s_pct}% {t('sessionUnder30')} ·
+                  {' '}{sessionStats.override_rate_pct}% {t('sessionOverridden')}
                 </div>
               )}
 
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <a className="btn ghost" href={reportUrl(result.id)} target="_blank" rel="noreferrer">
-                  Open report ↗
+                  {t('openReport')}
                 </a>
-                <button className="btn ghost" onClick={reset}>Screen another image (N)</button>
+                <button className="btn ghost" onClick={reset}>{t('screenAnother')}</button>
               </div>
             </div>
           </div>

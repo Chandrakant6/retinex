@@ -60,6 +60,18 @@ RECOMMENDATIONS = {
     4: "Urgent referral (within days)",
 }
 
+# Semantic codes for the frontend to translate into the active display
+# language (see frontend/src/i18n/translations.js, keys "rec_<code>").
+# RECOMMENDATIONS above stays as an English fallback (used in the backend-
+# rendered HTML report, and for any API consumer that just wants English).
+RECOMMENDATION_CODES = {
+    0: "routine_12mo",
+    1: "routine_6to12mo",
+    2: "refer_1mo",
+    3: "refer_2wk",
+    4: "urgent",
+}
+
 USE_TF = False
 _model = None
 _grad_model = None
@@ -74,6 +86,7 @@ def init_model():
     global _logits_model
     try:
         import tensorflow as tf
+        import model_def
         from model_def import LAST_CONV_LAYER_NAME, LOGITS_LAYER_NAME
 
         if not os.path.exists(CHECKPOINT_PATH):
@@ -81,15 +94,22 @@ def init_model():
                 f"{CHECKPOINT_PATH} not found — run `python scripts/build_model.py` first"
             )
         _model = tf.keras.models.load_model(CHECKPOINT_PATH)
-        _grad_model = tf.keras.Model(
-            inputs=_model.input,
-            outputs=[_model.get_layer(LAST_CONV_LAYER_NAME).output, _model.output],
-        )
-        # Separate model reusing the same weights to read pre-softmax logits
-        # (needed for temperature scaling) — see model_def.LOGITS_LAYER_NAME.
-        _logits_model = tf.keras.Model(
-            inputs=_model.input, outputs=_model.get_layer(LOGITS_LAYER_NAME).output
-        )
+        model_def.ensure_built(_model)
+        model_input = _model.inputs[0]
+        model_output = _model.outputs[0]
+
+        conv_layer = model_def.get_grad_cam_layer(_model)
+        if conv_layer.name != LAST_CONV_LAYER_NAME:
+            print(f"[ml_model] No layer named '{LAST_CONV_LAYER_NAME}' — "
+                  f"using last Conv2D layer found instead: '{conv_layer.name}'")
+        _grad_model = tf.keras.Model(inputs=model_input, outputs=[conv_layer.output, model_output])
+
+        try:
+            _model.get_layer(LOGITS_LAYER_NAME)
+        except ValueError:
+            print(f"[ml_model] No layer named '{LOGITS_LAYER_NAME}' — "
+                  f"neutralizing the final layer's softmax to read logits directly instead.")
+        _logits_model = model_def.get_logits_model(_model)
         if os.path.exists(CONFIG_PATH):
             _config.update(json.load(open(CONFIG_PATH)))
         USE_TF = True
@@ -229,6 +249,7 @@ def _predict_tf(original_path, enhanced_path, out_dir):
         "confidence": round(float(probs.max()), 3),
         "probabilities": [round(float(p), 3) for p in probs],
         "recommendation": RECOMMENDATIONS[level],
+        "recommendation_code": RECOMMENDATION_CODES[level],
         "evidence": {
             "microaneurysm_count": evidence_raw["microaneurysm_count"],
             "hemorrhage_count": evidence_raw["hemorrhage_count"],
@@ -283,6 +304,7 @@ def _predict_mock(original_path, enhanced_path, out_dir):
         "confidence": round(float(probs.max()), 3),
         "probabilities": [round(float(p), 3) for p in probs],
         "recommendation": RECOMMENDATIONS[level],
+        "recommendation_code": RECOMMENDATION_CODES[level],
         "evidence": {
             "microaneurysm_count": evidence_raw["microaneurysm_count"],
             "hemorrhage_count": evidence_raw["hemorrhage_count"],

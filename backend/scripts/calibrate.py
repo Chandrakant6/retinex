@@ -21,7 +21,7 @@ import numpy as np
 import tensorflow as tf
 from scipy.optimize import minimize_scalar
 
-from model_def import IMG_SIZE, LOGITS_LAYER_NAME, preprocess_image_file
+from model_def import IMG_SIZE, get_logits_model, ensure_built, preprocess_image_file
 from train import list_files_and_labels
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.json")
@@ -35,7 +35,7 @@ def get_val_logits(data_dir, model):
     preprocessed images would produce a temperature/threshold that doesn't
     actually match production inference."""
     paths, labels = list_files_and_labels(os.path.join(data_dir, "val"))
-    logits_layer_model = tf.keras.Model(model.input, model.get_layer(LOGITS_LAYER_NAME).output)
+    logits_layer_model = get_logits_model(model)
 
     all_logits = []
     batch = []
@@ -104,6 +104,7 @@ def main():
     args = ap.parse_args()
 
     model = tf.keras.models.load_model(CHECKPOINT_PATH)
+    ensure_built(model)
     logits, labels = get_val_logits(args.data_dir, model)
 
     T = fit_temperature(logits, labels)

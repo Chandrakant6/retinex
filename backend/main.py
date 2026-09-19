@@ -108,6 +108,7 @@ async def screen(file: UploadFile = File(...)):
             "confidence": prediction["confidence"],
             "probabilities": prediction["probabilities"],
             "recommendation": prediction["recommendation"],
+            "recommendation_code": prediction["recommendation_code"],
         },
         "evidence": prediction["evidence"],
         "images": images,

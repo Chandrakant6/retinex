@@ -25,7 +25,7 @@ import tensorflow as tf
 
 import processing
 import lesions
-from model_def import IMG_SIZE, LOGITS_LAYER_NAME, preprocess_image_file
+from model_def import IMG_SIZE, get_logits_model, ensure_built, preprocess_image_file
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.json")
 CHECKPOINT_PATH = os.path.join(os.path.dirname(__file__), "..", "checkpoints", "model.keras")
@@ -71,16 +71,21 @@ def main():
 
     cfg = load_config()
     model = tf.keras.models.load_model(CHECKPOINT_PATH)
+    ensure_built(model)
 
     y_true, y_prob, quality_gradable, lesion_referable_floor = [], [], [], []
-    logits_model = tf.keras.Model(model.input, model.get_layer(LOGITS_LAYER_NAME).output)
+    logits_model = get_logits_model(model)
 
     for cls in range(5):
         cls_dir = os.path.join(args.data_dir, str(cls))
         if not os.path.isdir(cls_dir):
+            print(f"  (skipping — no folder at {cls_dir})")
             continue
+        n_before = len(y_true)
         for fname in os.listdir(cls_dir):
             path = os.path.join(cls_dir, fname)
+            if not os.path.isfile(path):
+                continue
             q = processing.assess_quality(path)
             quality_gradable.append(q["gradable"])
 
@@ -92,6 +97,19 @@ def main():
 
             ev = lesions.detect(path, "/tmp/_eval_lesion.png")
             lesion_referable_floor.append(lesions.rule_based_level_floor(ev) >= 2)
+        print(f"  class {cls}: {len(y_true) - n_before} images from {cls_dir}")
+
+    if len(y_true) == 0:
+        raise FileNotFoundError(
+            f"No images found under any of "
+            f"{[os.path.join(args.data_dir, str(c)) for c in range(5)]}. "
+            f"--data_dir must contain FLAT subfolders named 0, 1, 2, 3, 4 "
+            f"directly inside it (each holding that class's images) — not "
+            f"a train/val split. If you pointed this at the same data/ "
+            f"used for training, use test_data/0..4/ (a held-out set) "
+            f"instead, or pass e.g. data/val/ if you're evaluating the "
+            f"validation split as a stand-in."
+        )
 
     y_true = np.array(y_true)
     y_prob = np.array(y_prob)

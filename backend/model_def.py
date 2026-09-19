@@ -55,6 +55,73 @@ def build_model() -> tf.keras.Model:
     return models.Model(inputs, outputs, name="dr_grader")
 
 
+def ensure_built(model):
+    """A model saved without ever being 'built' (a Sequential model with no
+    explicit Input layer, or any model never run on a batch before saving)
+    has no defined .inputs/.outputs yet, which breaks every function below.
+    A forward pass on a dummy batch forces Keras to resolve shapes; a
+    harmless no-op for a model that's already built. Called once, right
+    after tf.keras.models.load_model(), by ml_model.py, calibrate.py, and
+    evaluate.py alike."""
+    if not model.built:
+        model(tf.zeros((1, IMG_SIZE, IMG_SIZE, 3), dtype=tf.float32))
+    return model
+
+
+def get_logits_model(model):
+    """Build a sub-model that outputs pre-softmax logits, for temperature
+    scaling and calibration. Shared by ml_model.py (inference),
+    calibrate.py, and evaluate.py — one implementation, so a fix in one
+    place can't drift out of sync with the others (see doc/model.md for a
+    prior bug that happened exactly this way).
+
+    Prefers the conventionally-named LOGITS_LAYER_NAME layer (what
+    build_model() produces). If that layer doesn't exist — e.g. the model
+    was trained by a different script that doesn't follow this project's
+    architecture — falls back to neutralizing the final layer's softmax
+    activation in place, so the model's own output becomes raw logits.
+    This works for essentially any Keras classifier ending in a softmax
+    Dense layer, trained however you like.
+    """
+    model_input = model.inputs[0]
+    try:
+        logits_layer = model.get_layer(LOGITS_LAYER_NAME)
+        return tf.keras.Model(inputs=model_input, outputs=logits_layer.output)
+    except ValueError:
+        last_layer = model.layers[-1]
+        if getattr(last_layer, "activation", None) is tf.keras.activations.softmax:
+            last_layer.activation = tf.keras.activations.linear
+            return tf.keras.Model(inputs=model_input, outputs=model.outputs[0])
+        raise ValueError(
+            f"No layer named '{LOGITS_LAYER_NAME}' and the final layer "
+            f"('{last_layer.name}') activation isn't softmax — can't "
+            f"determine logits automatically. Rename your final Dense "
+            f"layer's activation to 'softmax', or add a layer named "
+            f"'{LOGITS_LAYER_NAME}' before it."
+        )
+
+
+def get_grad_cam_layer(model):
+    """Find the convolutional layer Grad-CAM should read gradients from.
+    Shared by ml_model.py, for the same reason as get_logits_model above.
+
+    Prefers the conventionally-named LAST_CONV_LAYER_NAME layer; falls
+    back to the last Conv2D layer found by type, so this works on models
+    trained by any script, not just this project's train.py."""
+    try:
+        return model.get_layer(LAST_CONV_LAYER_NAME)
+    except ValueError:
+        conv_candidates = [l for l in model.layers if isinstance(l, tf.keras.layers.Conv2D)]
+        if not conv_candidates:
+            raise ValueError(
+                f"No layer named '{LAST_CONV_LAYER_NAME}' and no Conv2D "
+                f"layer found at all — Grad-CAM needs at least one "
+                f"convolutional layer. Existing layers: "
+                f"{[l.name for l in model.layers]}"
+            )
+        return conv_candidates[-1]
+
+
 def preprocess_array(rgb_uint8):
     """rgb_uint8: HxWx3 uint8 RGB array, already resized to IMG_SIZE.
     Standard [0,1] scaling + ImageNet-style mean/std normalization."""

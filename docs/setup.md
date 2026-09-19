@@ -117,3 +117,43 @@ dr-screening/
   samples/                     small synthetic test images (not real patient data)
   doc/                          you are here
 ```
+
+## 4. Trying the model on your own images (no labels needed)
+
+If you just want to see what the model predicts on a folder of images —
+no ground-truth labels, no accuracy metrics, just running the real
+pipeline and inspecting results — use `scripts/predict_folder.py` instead
+of `evaluate.py`. It accepts a **flat** folder with any filenames:
+
+```bash
+cd backend
+python scripts/predict_folder.py --data_dir test_images/
+# or, to also keep each image's enhanced/gradcam/lesions PNGs for inspection:
+python scripts/predict_folder.py --data_dir test_images/ --save_artifacts
+```
+
+Writes `predictions.csv` into that same folder (filename, quality tier,
+ICDR level, referable, confidence, consistency flag) and prints a
+per-image summary plus an overall tally. This is the right tool when you
+don't have labels; `evaluate.py` is for when you do and want real
+sensitivity/specificity numbers (see `doc/validation.md`).
+
+## Multi-language support
+
+The frontend ships with English and Hindi, switchable from the dropdown in
+the top bar (persisted in the browser via localStorage). All UI strings go
+through a single `t()` function — see `frontend/src/i18n/translations.js`
+and `I18nContext.jsx`.
+
+**Adding a new language:** copy the `en` object in `translations.js`,
+translate every value (never change the keys), add it under its language
+code in the same file, and add one line to `LANGUAGES` — nothing else
+needs to change.
+
+**Important — medical translation disclaimer, stated in `translations.js`
+itself too:** the Hindi translations, especially the referral
+recommendations (`rec_*` keys) and quality-gate guidance (`reason_*`
+keys), have not been reviewed by a native-speaking clinician. Before real
+deployment in any language, have that review done — a mistranslation of
+"urgent referral within days" vs. "routine rescreen in 12 months" is not
+a cosmetic bug in a healthcare tool.

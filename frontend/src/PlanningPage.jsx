@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { runSimulation } from './api';
 import { LineChart } from './lib.jsx';
+import { useI18n } from './i18n/I18nContext.jsx';
 
 const DEFAULTS = {
   num_sites: 20,
@@ -15,17 +16,19 @@ const DEFAULTS = {
   sim_days: 30,
 };
 
+// keys map to translation keys "ctrl_<key>" in translations.js
 const CONTROLS = [
-  { key: 'num_sites', label: 'Camera sites', min: 1, max: 100, step: 1 },
-  { key: 'patients_per_site_per_day', label: 'Patients / site / day', min: 1, max: 100, step: 1 },
-  { key: 'upload_bandwidth_mbps', label: 'Upload bandwidth (Mbps)', min: 0.5, max: 50, step: 0.5 },
-  { key: 'ai_seconds_per_image', label: 'AI seconds / image', min: 0.2, max: 10, step: 0.1 },
-  { key: 'review_fraction', label: 'Fraction needing review', min: 0.05, max: 1, step: 0.05 },
-  { key: 'review_seconds', label: 'Review seconds / image', min: 5, max: 120, step: 1 },
-  { key: 'num_reviewers', label: 'Ophthalmologists / reviewers', min: 1, max: 30, step: 1 },
+  { key: 'num_sites', min: 1, max: 100, step: 1 },
+  { key: 'patients_per_site_per_day', min: 1, max: 100, step: 1 },
+  { key: 'upload_bandwidth_mbps', min: 0.5, max: 50, step: 0.5 },
+  { key: 'ai_seconds_per_image', min: 0.2, max: 10, step: 0.1 },
+  { key: 'review_fraction', min: 0.05, max: 1, step: 0.05 },
+  { key: 'review_seconds', min: 5, max: 120, step: 1 },
+  { key: 'num_reviewers', min: 1, max: 30, step: 1 },
 ];
 
 export default function PlanningPage() {
+  const { t } = useI18n();
   const [params, setParams] = useState(DEFAULTS);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -49,12 +52,8 @@ export default function PlanningPage() {
 
   return (
     <div>
-      <h1 className="page-title">District screening capacity planning</h1>
-      <p className="page-subtitle">
-        Adjust the sliders to size a screening program — find the smallest reviewer/bandwidth
-        setup that keeps the backlog under control. Ported from this Python model to Simulink
-        is a direct block-for-block translation (see doc/simulation.md).
-      </p>
+      <h1 className="page-title">{t('planningTitle')}</h1>
+      <p className="page-subtitle">{t('planningSubtitle')}</p>
 
       {error && <div className="error-banner">{error}</div>}
 
@@ -63,7 +62,7 @@ export default function PlanningPage() {
           {CONTROLS.map((c) => (
             <div className="control-row" key={c.key}>
               <label>
-                <span>{c.label}</span>
+                <span>{t(`ctrl_${c.key}`)}</span>
                 <span className="value">{params[c.key]}</span>
               </label>
               <input
@@ -81,31 +80,32 @@ export default function PlanningPage() {
               <div className="stat-grid">
                 <div className="card stat-box">
                   <div className="stat-value">{result.summary.annual_patients_capacity.toLocaleString()}</div>
-                  <div className="stat-label">Patients / year at these settings</div>
+                  <div className="stat-label">{t('statPatientsPerYear')}</div>
                 </div>
                 <div className={`card stat-box ${result.summary.backlog_clear_time_hours > 48 ? 'warn' : ''}`}>
                   <div className="stat-value">{result.summary.backlog_clear_time_hours}h</div>
-                  <div className="stat-label">Time to clear peak review backlog</div>
+                  <div className="stat-label">{t('statBacklogClear')}</div>
                 </div>
                 <div className="card stat-box">
                   <div className="stat-value">{result.summary.reviewer_utilization_pct}%</div>
-                  <div className="stat-label">Reviewer utilization</div>
+                  <div className="stat-label">{t('statUtilization')}</div>
                 </div>
                 <div className="card stat-box">
                   <div className="stat-value" style={{ fontSize: 16, textTransform: 'capitalize' }}>
-                    {result.summary.bottleneck.replace('_', ' ')}
+                    {t(`bottleneck_${result.summary.bottleneck}`)}
                   </div>
-                  <div className="stat-label">Current bottleneck</div>
+                  <div className="stat-label">{t('statBottleneck')}</div>
                 </div>
               </div>
 
               <div className="bottleneck-note">
-                Capacity per hour — upload: {result.capacity_per_hour.upload} · AI: {result.capacity_per_hour.ai} ·
-                {' '}review: {result.capacity_per_hour.review} · incoming: {result.capacity_per_hour.images_in} images/hr
+                {t('capacityNote')} {result.capacity_per_hour.upload} · {t('capacityAi')} {result.capacity_per_hour.ai} ·
+                {' '}{t('capacityReview')} {result.capacity_per_hour.review} ·
+                {' '}{t('capacityIncoming')} {result.capacity_per_hour.images_in} {t('capacityImagesPerHr')}
               </div>
 
               <div className="card chart-card">
-                <h3>Queue length over the simulated period</h3>
+                <h3>{t('chartTitle')}</h3>
                 <LineChart
                   xLabel="hour"
                   yLabel="queue length (images)"
@@ -116,9 +116,9 @@ export default function PlanningPage() {
                   ]}
                 />
                 <div className="legend">
-                  <span><i style={{ background: '#8a9c1e' }} /> Upload queue</span>
-                  <span><i style={{ background: '#c99a1e' }} /> AI processing queue</span>
-                  <span><i style={{ background: '#b13a3a' }} /> Human review queue</span>
+                  <span><i style={{ background: '#8a9c1e' }} /> {t('legendUpload')}</span>
+                  <span><i style={{ background: '#c99a1e' }} /> {t('legendAi')}</span>
+                  <span><i style={{ background: '#b13a3a' }} /> {t('legendReview')}</span>
                 </div>
               </div>
             </>

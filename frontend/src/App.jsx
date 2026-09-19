@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
 import { health } from './api';
+import { useI18n } from './i18n/I18nContext.jsx';
 import ScreenPage from './ScreenPage.jsx';
 import WorklistPage from './WorklistPage.jsx';
 import PlanningPage from './PlanningPage.jsx';
 
-const TABS = [
-  { key: 'screen', label: 'Screen' },
-  { key: 'worklist', label: 'Worklist' },
-  { key: 'planning', label: 'District Planning' },
-];
-
 export default function App() {
   const [tab, setTab] = useState('screen');
   const [engineInfo, setEngineInfo] = useState(null);
+  const { t, lang, setLang, languages } = useI18n();
+
+  const TABS = [
+    { key: 'screen', label: t('navScreen') },
+    { key: 'worklist', label: t('navWorklist') },
+    { key: 'planning', label: t('navPlanning') },
+  ];
 
   useEffect(() => {
     health().then(setEngineInfo).catch(() => setEngineInfo({ status: 'unreachable' }));
@@ -21,17 +23,28 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="topbar">
-        <div className="brand">Retinex<small>DR screening prototype</small></div>
+        <div className="brand">{t('brand')}<small>{t('brandSubtitle')}</small></div>
         <nav>
-          {TABS.map((t) => (
-            <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
-              {t.label}
+          {TABS.map((tItem) => (
+            <button key={tItem.key} className={tab === tItem.key ? 'active' : ''} onClick={() => setTab(tItem.key)}>
+              {tItem.label}
             </button>
           ))}
         </nav>
+        <select
+          className="lang-select"
+          value={lang}
+          onChange={(e) => setLang(e.target.value)}
+          aria-label="Language"
+        >
+          {Object.entries(languages).map(([code, info]) => (
+            <option key={code} value={code}>{info.native}</option>
+          ))}
+        </select>
         {engineInfo && (
           <span className={`engine-pill ${engineInfo.engine === 'mock' ? 'mock' : ''}`}>
-            {engineInfo.status === 'unreachable' ? 'backend unreachable' : `engine: ${engineInfo.engine}`}
+            {engineInfo.status === 'unreachable' ? t('engineUnreachable')
+              : engineInfo.engine === 'mock' ? t('engineMock') : t('engineTensorflow')}
           </span>
         )}
       </div>

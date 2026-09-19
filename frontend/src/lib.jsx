@@ -1,4 +1,6 @@
 export const LEVEL_COLORS = ['#2e7d46', '#8a9c1e', '#c99a1e', '#d9722c', '#b13a3a'];
+// English reference only — components display translated labels via
+// useI18n()'s t(`level_${i}`) instead (see i18n/translations.js).
 export const LEVEL_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'PDR'];
 
 /**
