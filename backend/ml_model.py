@@ -95,14 +95,12 @@ def init_model():
             )
         _model = tf.keras.models.load_model(CHECKPOINT_PATH)
         model_def.ensure_built(_model)
-        model_input = _model.inputs[0]
-        model_output = _model.outputs[0]
 
         conv_layer = model_def.get_grad_cam_layer(_model)
         if conv_layer.name != LAST_CONV_LAYER_NAME:
             print(f"[ml_model] No layer named '{LAST_CONV_LAYER_NAME}' — "
                   f"using last Conv2D layer found instead: '{conv_layer.name}'")
-        _grad_model = tf.keras.Model(inputs=model_input, outputs=[conv_layer.output, model_output])
+        _grad_model = model_def.build_grad_cam_model(_model, conv_layer)
 
         try:
             _model.get_layer(LOGITS_LAYER_NAME)
@@ -203,12 +201,14 @@ def _predict_tf(original_path, enhanced_path, out_dir):
 
     heatmap = _grad_cam(x, level)  # 28x28, values in [0,1]
 
-    # Full-resolution display overlay: blend onto the framed image at ITS
+    # Full-resolution display overlay: blend onto the original image at ITS
     # native resolution (not the 224x224 model-input size), so the Grad-CAM
     # tab isn't blurrier than the Enhanced/Lesions tabs it's compared
-    # against in the UI. `original_path` here is the square-framed image
-    # (see processing.standardize_frame), so this is a plain resize with
-    # no aspect distortion.
+    # against in the UI. `original_path` here is the raw uploaded image
+    # (no square-crop — see model_def.preprocess_image_file's docstring
+    # for why), so on a non-square photo this overlay will show the same
+    # non-square aspect ratio as every other tab — consistent, if not
+    # square, which matters more.
     full_bgr = cv2.imread(original_path)
     full_rgb = cv2.cvtColor(full_bgr, cv2.COLOR_BGR2RGB)
     heatmap_full = _resize_heatmap(heatmap, full_rgb.shape[:2])

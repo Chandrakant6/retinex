@@ -2,13 +2,10 @@
 Model architecture definition — shared by the training/build script and the
 inference module so the two can never drift apart.
 
-A small custom CNN (not a huge pretrained backbone) on purpose: this sandbox
-has no route to download ImageNet weights, and a compact network is fast
-enough to run CPU-only on a district health-centre PC, which matters more
-for this use case than squeezing out another point of accuracy. Swap in a
-larger backbone (EfficientNet, ResNet) once real training compute and a
-real dataset are available — nothing else in the pipeline needs to change
-as long as the input size and output contract stay the same.
+ARCHITECTURE IN SYNC WITH Retinex.ipynb: kept identical, layer for layer, to
+cell 63 of the notebook used to train the currently-deployed checkpoint
+(backend/checkpoints/model.keras). If the notebook's architecture changes on
+a future retrain, mirror the change here too — see build_model() below.
 """
 import cv2
 import numpy as np
@@ -19,40 +16,47 @@ import processing
 
 IMG_SIZE = 224
 NUM_CLASSES = 5
+# No layer names set in build_model() below, matching the notebook exactly.
+# These two constants are still checked FIRST by get_grad_cam_layer() and
+# get_logits_model() (in case you ever do add these names — to your own
+# retrain or a different architecture entirely); when absent, both
+# functions fall back to auto-detecting the right layer by type/position,
+# which is what actually happens for a model built by build_model() as
+# it stands today. See both functions below for exactly how.
 LAST_CONV_LAYER_NAME = "last_conv"
 LOGITS_LAYER_NAME = "icdr_logits"
 
 
 def build_model() -> tf.keras.Model:
-    inputs = layers.Input(shape=(IMG_SIZE, IMG_SIZE, 3), name="fundus_image")
+    """Architecture kept in exact sync with Retinex.ipynb (cell 63) — the
+    notebook used to train the currently-deployed checkpoint. Deliberately
+    identical to the notebook's version: no BatchNorm, Flatten (not
+    GlobalAveragePooling) before the dense head, 5-way softmax output.
+    scripts/train.py calls this function, so retraining through this
+    project's script instead of the notebook produces the same
+    architecture. If you change the notebook's architecture on a future
+    retrain, mirror the change here too, or the two will drift apart.
+    """
+    return models.Sequential([
+        layers.Input(shape=(IMG_SIZE, IMG_SIZE, 3)),
 
-    x = layers.Conv2D(32, 3, padding="same", activation="relu")(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D()(x)
+        layers.Conv2D(32, (3, 3), activation="relu"),
+        layers.MaxPooling2D((2, 2)),
 
-    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D()(x)
+        layers.Conv2D(64, (3, 3), activation="relu"),
+        layers.MaxPooling2D((2, 2)),
 
-    x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D()(x)
+        layers.Conv2D(128, (3, 3), activation="relu"),
+        layers.MaxPooling2D((2, 2)),
 
-    x = layers.Conv2D(256, 3, padding="same", activation="relu", name=LAST_CONV_LAYER_NAME)(x)
-    x = layers.BatchNormalization()(x)
+        layers.Flatten(),
 
-    pooled = layers.GlobalAveragePooling2D()(x)
-    pooled = layers.Dropout(0.3)(pooled)
-    pooled = layers.Dense(128, activation="relu")(pooled)
-    pooled = layers.Dropout(0.2)(pooled)
-    # Logits kept as a separate, named layer (no activation) so inference
-    # code can grab pre-softmax logits directly for temperature scaling —
-    # much simpler and more robust than trying to invert a fused
-    # Dense(activation="softmax") layer's output.
-    logits = layers.Dense(NUM_CLASSES, activation=None, name=LOGITS_LAYER_NAME)(pooled)
-    outputs = layers.Activation("softmax", name="icdr_probs")(logits)
+        layers.Dense(128, activation="relu"),
+        layers.Dropout(0.5),
 
-    return models.Model(inputs, outputs, name="dr_grader")
+        layers.Dense(NUM_CLASSES, activation="softmax"),
+    ], name="dr_grader")
+
 
 
 def ensure_built(model):
@@ -66,6 +70,43 @@ def ensure_built(model):
     if not model.built:
         model(tf.zeros((1, IMG_SIZE, IMG_SIZE, 3), dtype=tf.float32))
     return model
+
+
+def build_grad_cam_model(model, conv_layer):
+    """Build a Grad-CAM sub-model: given a loaded model and the conv layer
+    to read gradients from (see get_grad_cam_layer), returns a Model
+    outputting [conv_layer's activations, the model's final predictions].
+
+    NOT implemented as the straightforward-looking
+    `tf.keras.Model(inputs=model.inputs[0],
+                     outputs=[conv_layer.output, model.outputs[0]])`
+    — that pattern silently breaks for a Sequential model that has been
+    saved and reloaded (confirmed directly: `tape.gradient(loss, conv_out)`
+    returns None even though both `conv_layer.output` and `model.outputs[0]`
+    individually look like valid, correctly-shaped tensors). This is a real
+    Keras 3 quirk in how a reloaded Sequential model's internal graph
+    represents shared lineage between an intermediate layer's output and
+    the model's own output — a fresh Functional-API model built the normal
+    way doesn't have this problem; only a *reloaded* Sequential model does.
+
+    The fix: rebuild a clean Functional-API graph by re-calling the SAME
+    (already-trained) layer objects in sequence. This reuses the identical
+    weights — confirmed by comparing tensors before/after — while giving
+    Keras a single, freshly-connected computation graph with no leftover
+    Sequential-specific serialization quirks. Works equally well on a
+    model that was never Sequential to begin with, so this is always safe
+    to call.
+    """
+    inp = tf.keras.Input(shape=model.input_shape[1:])
+    h = inp
+    conv_out_tensor = None
+    for layer in model.layers:
+        h = layer(h)
+        if layer is conv_layer:
+            conv_out_tensor = h
+    if conv_out_tensor is None:
+        raise ValueError(f"Layer '{conv_layer.name}' not found while rebuilding the Grad-CAM graph.")
+    return tf.keras.Model(inp, [conv_out_tensor, h])
 
 
 def get_logits_model(model):
@@ -124,11 +165,17 @@ def get_grad_cam_layer(model):
 
 def preprocess_array(rgb_uint8):
     """rgb_uint8: HxWx3 uint8 RGB array, already resized to IMG_SIZE.
-    Standard [0,1] scaling + ImageNet-style mean/std normalization."""
-    x = rgb_uint8.astype("float32") / 255.0
-    mean = np.array([0.485, 0.456, 0.406], dtype="float32")
-    std = np.array([0.229, 0.224, 0.225], dtype="float32")
-    return (x - mean) / std
+
+    Plain [0,1] scaling ONLY — no ImageNet mean/std normalization. This
+    matches Retinex.ipynb exactly (cells 39/43/48/52/53 all do
+    `tf.cast(image, tf.float32) / 255.0` and nothing else). A trained
+    model expects whatever numeric distribution it was trained on; adding
+    a normalization step the notebook never used would feed the model
+    input it has never seen, silently producing meaningless predictions
+    even though nothing would crash. If you retrain with different
+    normalization, update this function AND the notebook together.
+    """
+    return rgb_uint8.astype("float32") / 255.0
 
 
 def preprocess_image_file(path: str):
@@ -144,16 +191,27 @@ def preprocess_image_file(path: str):
     IMG_SIZE. The uint8 version is for display/overlay purposes; the
     float32 version (unbatched, HxWx3) is what the model actually consumes.
 
-    Crops to a square field-of-view bounding box BEFORE resizing — see
-    processing.crop_to_square_array — so images of any input resolution or
-    aspect ratio are resized without distortion. Idempotent on images that
-    are already square (e.g. main.py's framed.png), so it's always safe to
-    call regardless of what upstream step already ran.
+    NO SQUARE CROP — matches Retinex.ipynb exactly, which calls
+    `tf.image.resize()` directly on the raw image (cells 39/43/48/52/53),
+    with no field-of-view cropping step anywhere in the pipeline. APTOS
+    2019's images are NOT square (checked directly: everything from
+    1050x1050 up to 2848x4288, wildly mixed aspect ratios — see cell 24's
+    output), so the model was trained on retinas anisotropically distorted
+    (squished, not cropped) to fit 224x224. Matching that exactly — even
+    though it reintroduces geometric distortion on non-square input — is
+    necessary for the currently-deployed checkpoint to produce meaningful
+    predictions at all: a model can only be evaluated fairly using the
+    same preprocessing it learned under.
+
+    processing.crop_to_square_array() still exists and is unused by
+    default for exactly this reason. If you retrain with proper
+    square-cropping added to the notebook's preprocessing, switch this
+    function to call it again — search this file's git history (or
+    doc/model.md) for the version that did.
     """
     img_bgr = cv2.imread(path)
     if img_bgr is None:
         raise FileNotFoundError(f"could not read image: {path}")
-    square_bgr = processing.crop_to_square_array(img_bgr)
-    resized_bgr = cv2.resize(square_bgr, (IMG_SIZE, IMG_SIZE))
+    resized_bgr = cv2.resize(img_bgr, (IMG_SIZE, IMG_SIZE))
     resized_rgb = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
     return resized_rgb, preprocess_array(resized_rgb)

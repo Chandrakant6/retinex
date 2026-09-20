@@ -68,23 +68,26 @@ async def screen(file: UploadFile = File(...)):
         _cases[sid] = case
         return case
 
-    # Standardize to a square crop around the retinal FOV BEFORE anything
-    # else touches the image. This is what makes the model's resize-to-224
-    # a distortion-free uniform scale regardless of the camera's original
-    # resolution/aspect ratio, and keeps lesion points and the Grad-CAM
-    # heatmap in the same coordinate space. See processing.standardize_frame.
-    framed_path = os.path.join(sdir, "framed.png")
-    processing.standardize_frame(orig_path, framed_path)
+    # NO square-crop step here — deliberately. The currently-deployed model
+    # (trained via Retinex.ipynb) was trained on raw, uncropped images
+    # resized directly to 224x224, so cropping first would feed it a
+    # different geometry than it learned on and produce meaningless
+    # predictions. Grad-CAM, lesion detection, and enhancement all
+    # operate on the same original image the model sees, for the same
+    # reason: keeping every step in one consistent coordinate space.
+    # See model_def.preprocess_image_file's docstring, and
+    # processing.crop_to_square_array if you retrain with cropping added
+    # to the notebook later and want this step back.
 
     # "good" images are graded as-is; "borderline" images are enhanced first.
     if quality["tier"] == "borderline":
         enhanced_path = os.path.join(sdir, "enhanced.png")
-        processing.enhance_image(framed_path, enhanced_path)
+        processing.enhance_image(orig_path, enhanced_path)
     else:
         enhanced_path = os.path.join(sdir, "enhanced.png")
-        shutil.copy(framed_path, enhanced_path)
+        shutil.copy(orig_path, enhanced_path)
 
-    prediction = ml_model.predict(framed_path, enhanced_path, sdir)
+    prediction = ml_model.predict(orig_path, enhanced_path, sdir)
 
     images = {
         "original": f"/artifacts/{sid}/original.png",

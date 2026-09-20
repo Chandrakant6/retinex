@@ -13,6 +13,17 @@ what hasn't been validated yet.
   default — see `model.md` for the two-command fix
   (`scripts/calibrate.py` then `scripts/evaluate.py`) and why skipping
   straight to evaluation would misrepresent the sensitivity target.
+- **The notebook's own training likely never used real validation
+  monitoring.** `Retinex.ipynb`'s `.fit()` calls don't pass
+  `validation_data=`, even though `EarlyStopping`/`ReduceLROnPlateau` both
+  monitor `val_loss` — those callbacks almost certainly never fired. Its
+  reported test accuracy also appears to reuse the training dataframe
+  rather than a genuinely held-out split (`train_test_split` is imported
+  but not visibly called anywhere). This means any accuracy number the
+  notebook itself reports may reflect memorization, not generalization —
+  independent of, and prior to, the calibrate/evaluate steps above. Worth
+  fixing in the notebook (a real `train_test_split` on `data` before
+  building `train_ds`) before trusting its own numbers.
 - **No database.** Cases live in an in-memory Python dict and are lost on
   backend restart. Fine for a demo; not fine for a real clinic.
 - **No auth.** Anyone who can reach the API can screen images and see all
